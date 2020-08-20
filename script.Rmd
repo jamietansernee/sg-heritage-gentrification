@@ -1,0 +1,1236 @@
+---
+title: "Geodemographic Classification, Sequence Analysis and Regression Analysis of Singapore's Residential Neighbourhoods"
+output:
+  html_document:
+    theme: yeti
+    smart: true
+    highlight: textmate
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+#Geodemographic Classification of Singapore's Neighbourhoods 
+
+##Data Cleaning and Processing 
+1. First, load all the required packages to be used in the analysis. 
+```{r}
+# Load packages
+library(maptools)
+library(RColorBrewer)
+library(classInt)
+library(OpenStreetMap)
+library(sp)
+library(rgeos)
+library(tmap)
+library(tmaptools)
+library(sf)
+library(rgdal)
+library(geojsonio)
+library(tidyverse)
+library(leaflet)
+library(downloader)
+library(rgdal)
+library(ggplot2)
+library(reshape2)
+library(plotly)
+library(highcharter)
+library(histogram)
+library(viridis)
+library(methods)
+library(cluster)
+library(factoextra)
+library(corrplot) 
+library(NbClust)
+library(fmsb)
+library(rvest)
+library(knitr)
+library(dplyr)
+library(TraMineR)
+library(car)
+library(corrplot) 
+library(spData)
+library(spdep)
+library(RANN)
+```
+
+2. Read in the planning areas shapefile. 
+
+```{r}
+SGMapSF<-st_read('planning_areas_boundary/MP14_PLNG_AREA_WEB_PL.shp')
+```
+
+# 2000 Classification 
+
+3. Read in cleaned census dat for the year 2000. 
+
+```{r}
+# Read in census data for 2000 
+
+data2000<-read_csv('cleaned_census_2000.csv')
+data2000
+```
+
+```{r}
+# Convert planning area names in 'PLN_AREA_N' to row names
+data2000<-column_to_rownames(data2000,'PLN_AREA_N')
+data2000
+```
+
+4. These measures give an indication of the clustering tendency of data. 
+```{r}
+#Calculate Hopkins Statistic 
+res2000 <- get_clust_tendency(data2000, 5, graph = TRUE)
+res2000$hopkins_stat
+```
+
+```{r}
+# Dissimilarity matrix
+print(res2000$plot)
+```
+
+5. In order to determine optimal number of clusters, the elbow method with various fit statistics such as within-clusters sum of squares, D-index are used. 
+```{r}
+#Elbow Method for finding optimal number of clusters
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data2000, k, nstart=32,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+```{r}
+NbClust(data2000, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="dindex")
+```
+
+6. As optimal k appears to be 4, the PAM model is run with k=4. 
+```{r}
+# Compute PAM model 
+pam.res <- pam(data2000, 4)
+print(pam.res)
+```
+
+```{r}
+# Add cluster groups to dataframe 
+data2000 <- cbind(data2000, cluster = pam.res$cluster)
+head(data2000, n = 3)
+```
+
+```{r}
+# Visualize clusters using factoextra
+fviz_cluster(pam.res, data2000)
+```
+
+7.We calculate the silhouette width for each cluster in order to determine the validity of clustering. 
+```{r}
+# post-clustering diagnostics
+
+sil2 <- silhouette(pam.res$cluster, dist(data2000))
+fviz_silhouette(sil2)
+```
+
+```{r}
+# Convert row names back to column
+data2000<- data2000 %>% rownames_to_column("PLN_AREA_N")
+data2000
+```
+
+
+```{r}
+# Extract planning area names and cluster labels for sequence analysis later 
+seq_data<-as.data.frame( data2000[,c(1,31)], drop=false)
+
+
+# Rename column
+seq_data<-rename(seq_data, "2000"="cluster")
+seq_data
+```
+
+8. The geodemographic map displayed below reflects the neighbourhood classification of Singapore's planning areas in 2000. 
+```{r}
+# Geodemographic Mapping
+
+tmap_mode("plot")
+
+# merge classification data to the SF object 
+SGDataMap<-merge(x=SGMapSF, 
+             y=data2000, 
+             by="PLN_AREA_N", 
+             all.x = TRUE)
+
+# cast the cluster labels as characters so that the scale used is discrete 
+temp_map<-SGDataMap
+temp_map$cluster<-as.character(as.numeric(temp_map$cluster))
+
+Mypal <- c('#FA897B','#D0E645','#86E3CE','#8A5082')
+map<-tm_shape(temp_map)+
+  tm_polygons("cluster",title="Cluster",palette=Mypal)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=FALSE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"),main.title = "Singapore's Neighbourhood Classification in 2000", main.title.position = "center",main.title.size = 1,main.title.fontface = "bold")
+map
+```
+
+
+#2010 Classification 
+
+9. Read in census data for the year 2010. 
+```{r}
+#Read in 2010 census data 
+
+data2010<-read_csv('cleaned_census_2010.csv')
+data2010
+```
+
+```{r}
+# Convert planning area names in 'PLN_AREA_N' to row names
+data2010<-column_to_rownames(data2010,'PLN_AREA_N')
+data2010
+```
+
+10. Repeat the same processes for the 2010 census data. 
+```{r}
+# Hopkins statistic
+res2010 <- get_clust_tendency(data2010, 5, graph = TRUE)
+res2010$hopkins_stat
+```
+
+```{r}
+# Dissimilarity matrix
+print(res2010$plot)
+```
+
+```{r}
+#Elbow Method for finding the optimal number of clusters
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data2010, k, nstart=32,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+```{r}
+NbClust(data2010, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="dindex")
+```
+
+
+
+```{r}
+# Compute pam model with k=4
+pam.res2 <- pam(data2010, 4)
+print(pam.res2)
+```
+
+```{r}
+# Visualize clusters using factoextra
+fviz_cluster(pam.res2, data2010)
+```
+```{r}
+# post-clustering diagnostics
+sil3 <- silhouette(pam.res2$cluster, dist(data2010))
+fviz_silhouette(sil3)
+```
+
+```{r}
+data2010 <- cbind(data2010, cluster = pam.res2$cluster)
+```
+
+```{r}
+# convert row names to column
+data2010<- data2010 %>% rownames_to_column("PLN_AREA_N")
+data2010
+
+# mapping
+SGDataMap3<-merge(x=SGMapSF, 
+             y=data2010, 
+             by="PLN_AREA_N", 
+             all.x = TRUE)
+```
+
+
+```{r}
+# join to sequence data 
+seq_data<-merge(x=seq_data,y=data2010[ , c("PLN_AREA_N", "cluster")],by="PLN_AREA_N", all.x=TRUE)
+# rename column to classification in year 2010 
+seq_data <-rename(seq_data, "2010"="cluster")
+# check dataframe
+seq_data
+
+```
+
+10. We then map the cluster results to produce a geomographic classification of Singapore's planning areas in 2010. 
+
+```{r}
+tmap_mode("plot")
+
+# cast cluster labels as characters 
+temp_map<-SGDataMap3
+temp_map$cluster<-as.character(as.numeric(temp_map$cluster))
+
+# generate colour palette 
+Mypal <- c('#FA897B','#D0E645','#86E3CE','#8A5082')
+
+# plot map 
+map<-tm_shape(temp_map)+
+  tm_polygons("cluster",title="Cluster",palette=Mypal)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=FALSE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"),main.title = "Singapore's Neighbourhood Classification in 2010", main.title.position = "center",main.title.size = 1,main.title.fontface = "bold")
+map
+```
+
+
+# 2015 classification 
+
+11. Read in cleaned census data for 2015. 
+
+```{r}
+data2015<-read_csv('cleaned_census_2015.csv')
+data2015
+```
+
+
+12. Repeat all processes above for 2015 census data. 
+
+```{r}
+# convert planning area names in 'PLN_AREA_N' to row names
+data2015<-column_to_rownames(data2015,'PLN_AREA_N')
+data2015
+```
+
+
+```{r}
+# Hopkins statistic 
+res <- get_clust_tendency(data2015, 5, graph = TRUE)
+res$hopkins_stat
+```
+
+```{r}
+# Visualize the dissimilarity matrix
+print(res$plot)
+```
+
+```{r}
+#Elbow Method for finding the optimal number of clusters
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data2015, k, nstart=32,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+
+```{r}
+NbClust(data2015, distance="euclidean", min.nc=2, max.nc=10, method="ward.D2", index="dindex")
+```
+
+
+```{r}
+pam.res3 <- pam(data2015, 4)
+print(pam.res3)
+```
+
+```{r}
+data2015 <- cbind(data2015, cluster = pam.res3$cluster)
+head(data2015, n = 3)
+```
+
+```{r}
+# Visualize clusters using factoextra
+fviz_cluster(pam.res3, data2015)
+```
+```{r}
+# Post-diagnostics 
+sil <- silhouette(pam.res3$cluster, dist(data2015))
+fviz_silhouette(sil)
+```
+```{r}
+# Convert row names to column
+data2015<- data2015 %>% rownames_to_column("PLN_AREA_N")
+data2015
+```
+
+
+```{r}
+# Join to sequence data 
+seq_data<-merge(x=seq_data,y=data2015[ , c("PLN_AREA_N", "cluster")],by="PLN_AREA_N", all.x=TRUE)
+# Rename column to classification in year 2010 
+seq_data <-rename(seq_data, "2015"="cluster")
+# Check dataframe
+seq_data
+```
+
+```{r}
+# Replace NA values in 2015 column with cluster labels from previous year 
+seq_data$`2010`<-ifelse(is.na(seq_data$`2010`),seq_data$`2000`,seq_data$`2010`)
+seq_data$`2015`<-ifelse(is.na(seq_data$`2015`),seq_data$`2010`,seq_data$`2015`)
+
+```
+
+```{r}
+# Check sequence data 
+seq_data
+```
+
+
+```{r}
+# Mapping the 2015 geodemographic classification 
+temp_map<-SGDataMap2
+temp_map$cluster<-as.character(as.numeric(temp_map$cluster))
+tmap_mode("plot")
+Mypal <- c('#FA897B','#D0E645','#86E3CE','#8A5082')
+map<-tm_shape(temp_map)+
+  tm_polygons("cluster",title="Cluster",palette=Mypal)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=FALSE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"),main.title = "Singapore's Neighbourhood Classification in 2015", main.title.position = "center",main.title.size = 1,main.title.fontface = "bold")
+map
+```
+
+13. To visualise and summarise the characteristics of each neighbourhood cluster, we will use radar plots. First, find the average values for variables across all clusters. 
+
+```{r}
+# Group by cluster and find average 
+data2015 %>%
+group_by(cluster) %>%
+summarise_all(mean) -> radar_data 
+
+# Remove unnecessary columns, i.e. planning area name 
+radar_data<-radar_data[-c(2)]
+radar_data
+
+```
+
+14. Then, split the data according to their cluster labels. 
+```{r}
+# Filter dataset based on cluster labels  
+cluster_1<-radar_data %>% filter(`cluster`==1)
+cluster_2<-radar_data %>% filter(`cluster`==2)
+cluster_3<-radar_data %>% filter(`cluster`==3)
+cluster_4<-radar_data %>% filter(`cluster`==4)
+```
+
+15. Using the library fmsb, we create radar plots of selected key variables for each cluster, as a radar plot with too many dimensions loses interpretability and effectiveness of communication. 
+```{r}
+# Cluster 1 Radar Plot
+library(fmsb)
+data <- rbind(rep(70,20) , rep(0,20), cluster_1[c(10:14,16,24,30)])
+radarchart(data, axistype=1 , 
+ 
+    #custom polygon
+    pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5) , plwd=4 , 
+ 
+    #custom the grid
+    cglcol="grey", cglty=1, axislabcol="grey", cglwd=0.8,
+ 
+    #custom labels
+    vlcex=0.8 )
+```
+
+```{r}
+# Cluster 2 Plot
+data <- rbind(rep(120,10) , rep(0,10), cluster_2[c(10:14,16,24,30)])
+radarchart(data, axistype=1 , 
+ 
+    #custom polygon
+    pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5) , plwd=4 , 
+ 
+    #custom the grid
+    cglcol="grey", cglty=1, axislabcol="grey",cglwd=0.8,
+ 
+    #custom labels
+    vlcex=0.8 )
+```
+
+```{r}
+# Cluster 3 Plot 
+data <- rbind(rep(120,10) , rep(0,10), cluster_3[c(10:14,16,24,30)])
+radarchart(data, axistype=1 , 
+ 
+    #custom polygon
+    pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5) , plwd=4 , 
+ 
+    #custom the grid
+    cglcol="grey", cglty=1, axislabcol="grey",cglwd=0.8,
+ 
+    #custom labels
+    vlcex=0.8 )
+```
+
+```{r}
+# Cluster 4 Plot
+data <- rbind(rep(100,10) , rep(0,10), cluster_4[c(10:14,16,24,30)])
+radarchart(data, axistype=1 , 
+ 
+    #custom polygon
+    pcol=rgb(0.2,0.5,0.5,0.9) , pfcol=rgb(0.2,0.5,0.5,0.5) , plwd=4 , 
+ 
+    #custom the grid
+    cglcol="grey", cglty=1, axislabcol="grey",cglwd=0.8,
+ 
+    #custom labels
+    vlcex=0.8 )
+```
+
+# Sequence Analysis 
+
+16. First, using the sequence data that was compiled earlier, create a sequence object using only the clusters that every neighbourhood belongs to in each year. 
+
+```{r}
+seq_obj <- seqdef(seq_data[,2:4])
+```
+
+17. Next, measure sequence dissimilarity and substitution costs between every pair of sequence. 
+```{r}
+# Calculate substistution costs
+subs_costs <- seqsubm(seq_obj, method = "TRATE")
+
+# Print the substitution costs
+kable(subs_costs)
+```
+
+```{r}
+# Calculate the distance matrix
+seq.OM <- seqdist(seq_obj, method = "OM", sm = subs_costs)
+```
+
+18. To find the optimal number of clusters to classify the sequences, we similarly adopt the elbow method here. 
+```{r, fig.width=10,fig.height=7}
+# Assess different clustering solutions to specify the optimal number of clusters
+fviz_nbclust(seq.OM, cluster::pam, method = "wss")
+```
+
+19. Run the PAM model with k=4. 
+```{r}
+# Run clustering algorithm with k = 4
+pam.res <- pam(seq.OM, 4)
+```
+
+```{r}
+# Assign the cluster group into the tabular dataset
+seq_data$cluster <- pam.res$clustering
+
+# Then rename clusters 
+seq_data$cluster <- factor(seq_data$cluster, levels=c(1, 2, 3, 4),
+                                  labels=c("Suburban to Highly-educated, White-Collar",
+                                           "Stable Affluent",
+                                           "Stable 'Suburban' ",
+                                           "Affluent to Elite"))
+```
+
+20. To visualise the classification of sequences by group, we create sequence plots of individual sequences split by sequence group, as well as the distribution of sequences within each group. 
+```{r, fig.width=8,fig.height=7,dpi=400}
+# Plot of individual sequences split by sequence group
+
+seqIplot(seq_obj, group = seq_data$cluster, ylab = "Number of sequences",cex.axis=2,cex.legend=3)
+```
+
+```{r, fig.width=8,fig.height=7,dpi=400}
+# Distribution plot by sequence group
+seqdplot(seq_obj, group = seq_data$cluster, border=NA, ylab = "Distribution of sequences",cex.axis=2,cex.legend=3)
+```
+
+21. To identify spatial patterns in the classification of neighbourhood sequences, a map showing the distribution of sequence clusters is created as shown below. 
+
+```{r}
+# Read in planning area shapefile as SP object  
+library(rgdal)
+SgPA <- readOGR("planning_areas_boundary/MP14_PLNG_AREA_WEB_PL.shp")
+```
+
+```{r}
+# Check that boundaries have been read in correctly 
+plot(SgPA)
+```
+
+```{r}
+# Merge the spatial to the tabular dataset which includes the cluster names
+map_data <- merge(SgPA, seq_data, by.x="PLN_AREA_N", all.x=TRUE)
+```
+
+```{r}
+# Reproject data to WGS84 for mapping 
+map_data<-spTransform(map_data,CRS("+proj=longlat +datum=WGS84"))
+```
+
+
+```{r, fig.width=10,fig.height=7}
+# Create a map showing the distribution of sequence clusters
+
+# Specify the colour palette
+myColors <- rev(brewer.pal(4,"RdYlGn"))
+pal <- colorFactor(myColors, domain = unique(map_data$cluster))
+
+# Create the initial background map, 
+colourmap <- leaflet() %>% 
+  addTiles(urlTemplate = paste0('https://api.mapbox.com/styles/v1/mapbox/light-v9/tiles/256/{z}/{x}/{y}@2x?',                               'access_token=pk.eyJ1IjoiYnlvbGxpbiIsImEiOiJjanNleDR0enAxOXZ5NDRvYXMzYWFzejA','2In0.GGB4yI6z0leM1_BwGEYfiQ'),
+ attribution = '<a href="https://www.mapbox.com/about/maps/" title="Mapbox" target="_blank">Mapbox ©</a> | \
+                                    Map data provided by <a href="https://www.openstreetmap.org/copyright" \
+                                    title="OpenStreetMap Contributors" target="_blank">OpenStreetMap © Contributors</a>') %>% 
+  setView(lat = 1.3521, lng = 103.8198, zoom = 10)
+
+# Create the interactive map showing the sequence clusters
+colourmap %>%
+  addPolygons(data = map_data,
+    fillColor = ~pal(cluster),
+    weight = 0.2,
+    color = "white",
+    dashArray = "3",
+    fillOpacity = 0.7,
+    popup = paste("Cluster: ", map_data$cluster, "<br>",
+                  "Planning Area: ", map_data$PLN_AREA_N, "<br>"),
+    highlight = highlightOptions(
+      weight = 5,
+      color = "#666",
+      dashArray = "",
+      fillOpacity = 0.7,
+      bringToFront = TRUE)) %>% 
+  addLegend(pal = pal,
+            values  = map_data$cluster,
+            na.label = "Missing data",
+            position = "bottomleft",
+            title = "Neighbourhood Trajectories 2000-2015 in Singapore")
+```
+
+22. The map of conservation sites below is compared also with the geodemographic maps and map showing the distribution of sequence trajectories in Singapore. 
+```{r}
+# map of conservation sites 
+
+sg_planning_areas<-readOGR("planning_areas_boundary/MP14_PLNG_AREA_WEB_PL.shp")
+conservation_sites<- readOGR('conservation-area-map-shp/URA_CONSERVATION_AREA.shp')
+# Check in same projection before combining!
+stopifnot(proj4string(sg_planning_areas) == proj4string(conservation_sites))  
+plot(sg_planning_areas)
+plot(conservation_sites, col = "blue", add = T)
+title(main = "Singapore's Gazetted Conservation Areas")
+```
+
+23. Creating choropleth maps of key variables characteristic of gentrified neighbourhoods helps us to further identify spatial patterns in the distribution of neighbourhoods likely to be gentrified. 
+
+```{r}
+# set tmap mode to plotting to turn off interactive viewing 
+tmap_mode('plot')
+
+# Map of the high income variable 
+map1<-tm_shape(SGDataMap)+
+  tm_polygons("$8,000 & Over",title="Monthly Income Over S$8,000(%)",palette="YlGnBu")+
+  tm_credits("2000",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"))
+
+map1
+
+map2<-tm_shape(SGDataMap2)+
+  tm_polygons("$8,000 & Over",title="Monthly Income Over S$8,000(%)",palette="YlGnBu")+
+  tm_credits("2015",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"))
+
+map2
+```
+
+
+```{r}
+# Profession
+map3<-tm_shape(SGDataMap)+
+  tm_polygons("Professionals",title="Percentage in Professional Jobs",palette="YlGnBu")+
+  tm_credits("2000",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"))
+
+map3
+
+map4<-tm_shape(SGDataMap2)+
+  tm_polygons("Professionals",title="Percentage in Professional Jobs",palette="YlGnBu")+
+  tm_credits("2015",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1,legend.position=c("right","bottom"))
+
+map4
+
+# Profession 
+```
+
+```{r}
+# University Degrees 
+map5<-tm_shape(SGDataMap)+
+  tm_polygons("University",title="Percentage with University Degrees",palette="YlGnBu")+
+  tm_credits("2000",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1.5,legend.position=c("right","bottom"))
+
+map5
+
+map6<-tm_shape(SGDataMap2)+
+  tm_polygons("University",title="Percentage with University Degrees",palette="YlGnBu")+
+  tm_credits("2015",position=c("left","top"),size=0.8)+
+  tm_scale_bar(text.size=0.7,position = c("right","bottom"))+
+  tm_compass(size=2,position=c("right","bottom"))+
+  tm_layout(frame=FALSE,legend.outside=TRUE,legend.outside.position=c("right","bottom"),legend.height=2,legend.text.size = 0.6,legend.title.size=1.5,legend.position=c("right","bottom"))
+
+map6
+```
+
+# Spatial Hedonic Regressions Investigating the Impact of Conserved Heritage on House Prices in Gentrified Neighbourhoods  
+
+24. Read in cleaned and processed dataset from Python. 
+
+```{r}
+# Read in resale transactions  dataset   
+reg_data <-read_csv('FINAL_export_resale_flats.csv')
+reg_data
+```
+
+25. Since we are only interested in the period 2014-2016, filter the dataset for those falling within this time frame. 
+```{r}
+reg_data<-reg_data[ which(reg_data$month>='2014'), ]
+```
+
+```{r}
+# Check data 
+reg_data
+```
+
+26. We also remove unnecessary columns such as the address, latitude and longitude and distance dummies for Model 1.  
+```{r}
+# Remove unnecessary columns 
+reg_df_2014_2016 <- reg_data[ -c(2,5:7,18:22) ]
+reg_df_2014_2016
+```
+
+## Descriptive Statistics 
+
+27. We derive some summary statistics of our continuous variables in order to examine whether any prior transformations might be necessary before the regression. 
+```{r}
+# Summary Statistics
+summary(reg_df_2014_2016)
+
+```
+
+```{r}
+# Histogram of Dependent Variable - Resale Price 
+p <- ggplot(reg_df_2014_2016, aes(x=resale_price)) + 
+  geom_histogram(aes(y = ..density..),fill='#404080')+
+  geom_density(colour="red", size=0.5, adjust=1.5)+ 
+  xlab('Resale Price')+
+  ggtitle("Histogram of Resale Flat Prices") +
+  theme_light()+
+  theme(plot.title = element_text(size=12,face='bold'),
+        axis.title=element_text(size=11))
+p
+
+p2 <- ggplot(reg_df_2014_2016, aes(x=log(resale_price))) + 
+  geom_histogram(aes(y = ..density..),fill='#404080')+
+  geom_density(colour="red", size=0.5, adjust=1.5)+
+  xlab('Log of Resale Price')+
+  ggtitle("Histogram of Log of Resale Flat Prices") +
+  theme_light()+
+  theme(plot.title = element_text(size=12, face='bold'), 
+        axis.title=element_text(size=11))
+p2
+
+```
+
+```{r,dpi=600}
+# Faceted Histograms 
+SGSub<-reg_df_2014_2016[,c(1:13)] # create subset 
+SGMelt <- melt(SGSub, id.vars = 1)
+attach(SGMelt2)
+hist <- ggplot(SGMelt, aes(x=value)) + geom_histogram(aes(y = ..density..),binwidth=5,fill='darkblue') + geom_density(colour="red", size=0.5, adjust=1.5)+
+  theme_bw()
+hist<-hist + facet_wrap(~ variable, scales="free")
+hist
+```
+
+28. We also remove reference categorical variables. 
+```{r}
+# drop reference categorical variables 
+
+# choose largest categories 
+# ANG MO KIO, 3 ROOM, New generation 
+reg_df_2014_2016
+reg_df_2014_2016<-reg_df_2014_2016[ -c(17,28,33) ]
+
+```
+
+29. The correlation matrix plot also highlights if there is high collinearity between any variables which should be removed. 
+```{r,dpi=400}
+# Correlation Matrix 
+
+cormat <- cor(reg_df_2014_2016, use="complete.obs", method="pearson")
+str(reg_df_2014_2016)
+par(xpd=TRUE)
+corrplot(cormat, mar = c(3, 0, 2, 0),type = "lower", tl.cex = 0.5, tl.col = 'black',method='color')
+```
+
+30. To examine preliminary indications of distance decay effect in the relationship between proximity to the nearest heritage site and resale prices, scatterplots and a boxplot are created to visualise these potential patterns. 
+
+```{r}
+# add back in proximity zone categories and remove unnecessary columns
+reg_df_2<-reg_data[ -c(2,5:7) ]
+reg_df_2
+```
+
+```{r}
+# Add column showing zone that a flat belongs to 
+tempdf<-reg_df_2
+temp_zone1<- tempdf %>% filter(`0-400m`==1)
+temp_zone1$zone<-as.character("1")
+temp_zone2<- tempdf %>% filter(`400-800m`==1)
+temp_zone2$zone<-as.character("2")
+temp_zone3<- tempdf %>% filter(`800-1200m`==1)
+temp_zone3$zone<-as.character("3")
+temp_zone4<- tempdf %>% filter(`1200-1600m`==1)
+temp_zone4$zone<-as.character("4")
+temp_zone5<- tempdf %>% filter(`1600-2000m`==1)
+temp_zone5$zone<-as.character("5")
+
+# concatenate all dataframes 
+temp_df_zones<-rbind(temp_zone1, temp_zone2, temp_zone3, temp_zone4, temp_zone5)
+```
+
+
+```{r,dpi=600}
+# Faceted Scatterplots 
+
+# Scatter plot by zone 
+temp_df_zones %>% ggplot(aes(x=distance,y=resale_price,color=zone)) +
+  geom_point(alpha=0.3, size=0.05) + 
+  labs(x="Distance to Conservation Site (m)", y= "Resale Price (S$)",
+       title="HDB Resale Price in Gentrified Neighbourhoods vs Proximity to Nearest Conservation Area") +
+  scale_y_continuous(limits = c(192000,1050000))+
+  geom_smooth(method=lm, size=0.8,color='darkred')+
+  facet_wrap(~zone, ncol=2)+
+  theme_bw(base_size = 10)+ theme(plot.title = element_text(hjust = 0.5))+guides(colour = guide_legend(override.aes = list(size=3,alpha=1)))
+
+```
+
+```{r}
+# Add column showing zone that a flat belongs to 
+tempdf<-reg_df_2
+zone1<- tempdf %>% filter(`0-400m`==1)
+zone1$zone<-1
+zone2<- tempdf %>% filter(`400-800m`==1)
+zone2$zone<-2
+zone3<- tempdf %>% filter(`800-1200m`==1)
+zone3$zone<-3
+zone4<- tempdf %>% filter(`1200-1600m`==1)
+zone4$zone<-4
+zone5<- tempdf %>% filter(`1600-2000m`==1)
+zone5$zone<-5
+# concatenate all dataframes 
+tempdf_zones<-rbind(zone1, zone2, zone3, zone4, zone5)
+```
+
+
+```{r}
+# Box plot of median resale prices by distance categories  
+
+fill <- "#4271AE"
+line <- "#1F3552"
+
+bplot <- ggplot(tempdf_zones, aes(group=zone, x=zone, y = resale_price)) +
+         geom_boxplot()
+bplot <- bplot +  geom_boxplot(fill = fill, colour = line,
+                     alpha = 0.7) +
+                  scale_x_continuous(name = "Zone", breaks = seq(1,6)) +
+                  scale_y_continuous(name = "Resale Price of HDB Flats",
+                              breaks = seq(0, 1005000, 192000),
+                              limits=c(192000, 1005000))+
+                  ggtitle("Boxplot of Resale Prices by Zone")
+bplot+ theme_bw()
+```
+
+## Model 1
+
+### OLS Baseline Model  
+
+31. We first build a baseline OLS model 1 containing all variables. 
+```{r}
+model1 <- lm(log(`resale_price`) ~ . -`resale_price`, data=reg_df_2014_2016)
+
+summary(model1)
+```
+
+32. We also use VIF to determine variables causing multicollinearity problems, and remove those with values exceeding 10. 
+```{r}
+# Run VIF 
+car::vif(model1)
+```
+
+```{r}
+# Build a model excluding high VIF variables 
+model1a <- lm(log(`resale_price`) ~ . -(`resale_price`+`floor_area_sqm`+`cbd_distance`+`flat_type_EXECUTIVE`), data=reg_df_2014_2016)
+
+summary(model1a)
+
+```
+
+```{r}
+# all variables have VIF below 10 
+car::vif(model1a)
+```
+
+33. This is followed by stepwise selection of variables into the final OLS model. 
+
+```{r}
+# stepwise selection for only significant variables 
+#define intercept-only model
+intercept_only_model <- lm(log(`resale_price`) ~ 1, data = reg_df_2014_2016)
+
+#define total model
+total_model <- lm(log(`resale_price`) ~ . -(`resale_price`+`floor_area_sqm`+`cbd_distance`+`flat_type_EXECUTIVE`), data = reg_df_2014_2016)
+
+#perform stepwise regression
+step(intercept_only_model, direction = 'both', scope = formula(total_model))
+```
+
+34. The following is a summary of the final model with only statistically significant variables. 
+```{r}
+model1aa <- lm(log(resale_price) ~ remaining_lease + `flat_type_5 ROOM` + 
+    `flat_type_4 ROOM` + flat_model_Maisonette + storey + `flat_type_2 ROOM` + 
+    flat_model_Apartment + distance + town_GEYLANG + `town_TOA PAYOH` + 
+    `flat_model_Adjoined flat` + distance_mrt + flat_model_Terrace + 
+    flat_model_Simplified + `flat_type_1 ROOM` + `town_MARINE PARADE` + 
+    `flat_model_Model A-Maisonette` + `flat_model_Model A` + 
+    distance_mall + `town_BUKIT TIMAH` + flat_model_Improved + 
+    `town_BUKIT MERAH` + flat_model_Standard + distance_hawker_centre + 
+    distance_park + town_CLEMENTI + flat_model_DBSS + distance_school, data = reg_df_2014_2016)
+summary(model1aa)
+```
+
+```{r}
+# save residuals 
+reg_data$model1_resids <- model1aa$residuals
+```
+
+35. We also check that assumptions for linear regression have been met. 
+```{r}
+# Model diagnostics 
+# Residuals are normally distributed
+qplot(model1aa$residuals) + geom_histogram(bins=30)+xlab('OLS Model 1 Residuals') 
+
+```
+
+```{r}
+# Check for heteroskedasticity 
+plot(model1aa)
+```
+
+```{r}
+# Independence of Errors/No autocorrelation
+
+# run durbin-watson test
+durbinWatsonTest(model1aa)
+```
+
+### Spatial Lag and Error Model 1
+
+36. However, despite running the durbin-watson test for independece of errors, we also need to check for spatial autocorrelation given that we are dealing with spatial data. 
+
+```{r}
+# Remove unnecessary columns 
+reg_data_spreg<-reg_data
+reg_data_spreg<-reg_data_spreg[-c(2,18:22,26,37,42)]
+```
+
+37. However, because the software is unable to handle data containing multiple observations at a single location, we need to remove duplicates of addresses. Thus, only resale transactions with highest resale prices for each location is kept. 
+
+```{r}
+# Arrange transactions by price in descending order 
+reg_data_spreg<-arrange(reg_data_spreg, -resale_price)
+reg_data_spreg
+
+```
+
+```{r}
+# Remove duplicates of address locations 
+reg_data_nodups<-reg_data_spreg[!duplicated(reg_data_spreg$address),]
+```
+
+```{r}
+# Ensure only distinct latitude and longitude is left 
+reg_data_nodups %>% distinct(latitude, longitude, .keep_all = TRUE) ->reg_data_nodups
+```
+
+```{r}
+# Check data 
+reg_data_nodups
+```
+
+```{r}
+# Remove address column
+reg_data_nodups<-reg_data_nodups[-c(4)]
+reg_data_nodups
+```
+
+```{r}
+# Create geometry column from lat and long columns 
+coordinates(reg_data_nodups) <- ~longitude + latitude
+```
+
+```{r}
+neib_sub<-reg_data_nodups
+coordsFlats<-coordinates(neib_sub)
+```
+
+38. We now compute spatial autocorrelation for points data using k nearest neighbours as a distance measure, rather than contiguity measure. 
+
+```{r}
+library(RANN)
+x <- log(neib_sub$resale_price)
+```
+
+39. The correlation plot below shows when correlation between neighbourhoods decreases most drastically, and hence indicates optimal k. 
+
+```{r}
+# https://rpubs.com/profrichharris/556418
+knear400 <- knearneigh(neib_sub, k=400)
+r <- sapply(1:400, function(i) {
+  cor(x, x[knear400$nn[,i]])
+})
+data.frame(k = 1:400, r = r) %>%
+  ggplot(aes(x = k, y = r)) +
+  geom_line() +
+  geom_smooth(se = FALSE) +
+  xlab("kth nearest neighbour") +
+  ylab("Correlation, r")
+```
+
+40. Thus, we use k=100 to compute k-nearest neighbours to derive our neighbours list and create a spatial weights matrix based on the neighbours list. 
+
+```{r}
+# Create neighbours list with 100 nearest neighbours 
+knear100 <- knearneigh(neib_sub, k=100)
+class(knear100)
+knear100nb<-knn2nb(knear100)
+
+```
+
+```{r}
+# making spatial weights matrix from neighbours list 
+knear100nb_weight <- nb2listw(knear100nb, style="B")
+```
+
+41. This then allows us to run a moran's I test on the residuals from the OLS model 1 earlier. 
+```{r}
+#now run a moran's I test on the residuals
+moran.test(neib_sub$model1_resids, knear100nb_weight)
+```
+
+```{r}
+# change from spatial points dataframe to dataframe 
+reg_data_nodups<-as.data.frame(reg_data_nodups)
+reg_data_nodups
+```
+
+```{r}
+# remove unnecessary cols
+reg_data_nodup<-reg_data_nodups[-c(4:5,41)]
+reg_data_nodup
+```
+
+41. However, we are unable to determine if a SEM or SLM is the more appropriate model to address spatial autocorrelation from Moran's I. As such, we need to use the Lagrange-Multiplier test in order to determine this. 
+
+```{r}
+fit<-lm(log(`resale_price`) ~ remaining_lease + `flat_type_5.ROOM` + 
+    `flat_type_4.ROOM` + flat_model_Maisonette + storey + `flat_type_2.ROOM` + 
+    flat_model_Apartment + distance + town_GEYLANG + `town_TOA.PAYOH` + 
+    `flat_model_Adjoined.flat` + distance_mrt + flat_model_Terrace + 
+    flat_model_Simplified + `flat_type_1.ROOM` + `town_MARINE.PARADE` + 
+    `flat_model_Model.A.Maisonette` + `flat_model_Model.A` + 
+    distance_mall + `town_BUKIT.TIMAH` + flat_model_Improved + 
+    `town_BUKIT.MERAH` + flat_model_Standard + distance_hawker_centre + 
+    distance_park + town_CLEMENTI + flat_model_DBSS + distance_school + 
+    distance_supermarket + distance_carpark, data = reg_data_nodup)
+```
+
+
+```{r}
+lm.LMtests(fit, knear100nb_weight, test = c("LMerr","LMlag","RLMerr","RLMlag","SARMA"))
+```
+
+42. Based on the LM test, the SEM is the more appropriate model. However, we still run the SLM in addition to the SEM as it is an improvement over the OLS model. 
+
+```{r}
+# Spatial Lag Model 
+library(spatialreg)
+
+#Run spatially-lagged regression model 
+
+slag_model<- lagsarlm(log(`resale_price`) ~ remaining_lease + `flat_type_5.ROOM` + 
+    `flat_type_4.ROOM` + flat_model_Maisonette + storey + `flat_type_2.ROOM` + 
+    flat_model_Apartment + distance + town_GEYLANG + `town_TOA.PAYOH` + 
+    `flat_model_Adjoined.flat` + distance_mrt + flat_model_Terrace + 
+    flat_model_Simplified + `flat_type_1.ROOM` + `town_MARINE.PARADE` + 
+    `flat_model_Model.A.Maisonette` + `flat_model_Model.A` + 
+    distance_mall + `town_BUKIT.TIMAH` + flat_model_Improved + 
+    `town_BUKIT.MERAH` + flat_model_Standard + distance_hawker_centre + 
+    distance_park + town_CLEMENTI + flat_model_DBSS + distance_school + 
+    distance_supermarket + distance_carpark, data = reg_data_nodup, listw=knear100nb_weight, type = "lag")
+
+# Model summary
+summary(slag_model)
+
+```
+
+43. We also run the spatial error model, which is the final model for Model 1. 
+
+```{r}
+# Spatial Error Model 
+sem_model1 <- errorsarlm(log(`resale_price`) ~ remaining_lease + `flat_type_5.ROOM` + 
+    `flat_type_4.ROOM` + flat_model_Maisonette + storey + `flat_type_2.ROOM` + 
+    flat_model_Apartment + distance + town_GEYLANG + `town_TOA.PAYOH` + 
+    `flat_model_Adjoined.flat` + distance_mrt + flat_model_Terrace + 
+    flat_model_Simplified + `flat_type_1.ROOM` + `town_MARINE.PARADE` + 
+    `flat_model_Model.A.Maisonette` + `flat_model_Model.A` + 
+    distance_mall + `town_BUKIT.TIMAH` + flat_model_Improved + 
+    `town_BUKIT.MERAH` + flat_model_Standard + distance_hawker_centre + 
+    distance_park + town_CLEMENTI + flat_model_DBSS + distance_school, data = reg_data_nodup, listw=knear100nb_weight)
+
+# print the results of the model 
+summary(sem_model1)
+
+```
+
+## Model 2 
+
+43. We now turn to model 2, with regressions run separately for each proximity zone. This involves creating subsets of data grouped by the distance bands. 
+
+```{r}
+# Create subsets of data grouped by 5 zones of proximity 
+library(tidyverse)
+zone_1<-reg_df_2 %>% filter(`0-400m`==1)
+zone_2<-reg_df_2 %>% filter(`400-800m`==1)
+zone_3<-reg_df_2 %>% filter(`800-1200m`==1)
+zone_4<-reg_df_2 %>% filter(`1200-1600m`==1)
+zone_5<-reg_df_2 %>% filter(`1600-2000m`==1)
+
+# remove all distance dummies and reference variables 
+zone_1<-zone_1[ -c(14:18,22,33,38) ]
+zone_2<-zone_2[ -c(14:18,22,33,38) ]
+zone_3<-zone_3[ -c(14:18,22,33,38) ]
+zone_4<-zone_4[ -c(14:18,22,33,38) ]
+zone_5<-zone_5[ -c(14:18,22,33,38) ]
+
+
+```
+
+44. We then run the OLS regression paired with stepwise selection for each proximity zone. 
+
+```{r}
+# Zone 1 Regression 0-400m 
+library(MASS)
+# Fit the model 
+OLS_zone_1 <- lm(log(`resale_price`) ~. -(`resale_price`+`floor_area_sqm`+`cbd_distance`+`flat_type_EXECUTIVE`), data=zone_1)
+# Stepwise regression model
+step.zone_1 <- stepAIC(OLS_zone_1, direction = "both", 
+                      trace = FALSE)
+summary(step.zone_1)
+```
+
+
+```{r}
+# Zone 2 Regression 400-800m 
+
+# Fit the model 
+OLS_zone_2 <- lm(log(`resale_price`) ~ . -(`resale_price`+`cbd_distance`+`floor_area_sqm`+`flat_type_EXECUTIVE`+ distance_carpark), data=zone_2)
+# Stepwise regression model
+step.zone_2 <- stepAIC(OLS_zone_2, direction = "both", 
+                      trace = FALSE)
+summary(step.zone_2)
+```
+
+```{r}
+# Zone 3 Regression 800-1200m 
+
+# Fit the model 
+OLS_zone_3 <- lm(log(`resale_price`) ~ . -(`resale_price`+floor_area_sqm+`cbd_distance`+`flat_type_EXECUTIVE`+distance_bus_stop), data=zone_3)
+# Stepwise regression model
+step.zone_3 <- stepAIC(OLS_zone_3, direction = "both", 
+                      trace = FALSE)
+summary(step.zone_3)
+```
+
+
+```{r}
+# Zone 4 Regression 1200-1600m 
+
+# Fit the model 
+OLS_zone_4 <- lm(log(`resale_price`) ~ . -(`resale_price`+floor_area_sqm+`cbd_distance`+`flat_type_EXECUTIVE`+distance_hawker_centre), data=zone_4)
+                 
+# Stepwise regression model
+step.zone_4 <- stepAIC(OLS_zone_4, direction = "both", 
+                      trace = FALSE)
+summary(step.zone_4)
+```
+
+```{r}
+# Zone 5 Regression 1600-2000m 
+
+# Fit the model 
+OLS_zone_5 <- lm(log(`resale_price`) ~ . -(`resale_price`+`cbd_distance`+`flat_type_EXECUTIVE`+floor_area_sqm), data=zone_5)
+# Stepwise regression model
+step.zone_5 <- stepAIC(OLS_zone_5, direction = "both", 
+                      trace = FALSE)
+summary(step.zone_5)
+```
+
+45. To examine model robustness, we plot model diagnostics including residuals and residuals vs fits plot to examine whether linear assumptions have been met for each regression model.
+
+```{r}
+# Plot residuals 
+plot(OLS_zone_1)
+```
+
+```{r}
+# Plot residuals 
+plot(OLS_zone_2)
+```
+
+```{r}
+# Plot residuals 
+plot(OLS_zone_3)
+```
+
+```{r}
+# Plot residuals 
+plot(OLS_zone_4)
+```
+
+```{r}
+# Plot residuals 
+plot(OLS_zone_5)
+```
+
+
+# Data Sources 
+
+https://www.singstat.gov.sg/find-data/search-by-theme/population/geographic-distribution/latest-data
+https://www.onemap.sg/main/v2/
+https://data.gov.sg/dataset/resale-flat-prices
+https://data.gov.sg/dataset/conservation-area-map
+
+
+
